@@ -145,7 +145,7 @@ class Solver():
 				  f'Loss: {loss:.6f} | ' \
 				  f'MAE: {mae:.4f}')
 			self.writer.add_scalar('Loss/validation', val_score, epoch)
-			self.writer.add_scalar('MAE/train', mae, epoch*len(self.train_loader)+i)
+			self.writer.add_scalar('MAE/validation', mae, epoch*len(self.train_loader)+i)
 
 			# Save best model
 			if val_score < best_val_score:
