@@ -50,6 +50,8 @@ if __name__ == '__main__':
                         help='number of epoch for auto saving, -1 for turn off')
     parser.add_argument('--multi_gpu', type=int, default=1, choices=[0,1],
                         help='0 for single-GPU, 1 for multi-GPU')
+    parser.add_argument('--abstract_pool', type=int, default=8,
+                        help='abstract pool size')
 
     config = parser.parse_args()
     main(config)

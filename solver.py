@@ -6,6 +6,7 @@ import torchvision.models as models
 from torch.utils.tensorboard import SummaryWriter
 from model import U_Net as U_Net
 import metrics
+import utils
 import sys
 
 class Solver():
@@ -46,6 +47,7 @@ class Solver():
 		# Misc
 		self.save_epoch = config.save_epoch
 		self.multi_gpu = config.multi_gpu
+		self.abstract_pool = config.abstract_pool
 
 		self.build_model()
 
@@ -86,49 +88,64 @@ class Solver():
 			for i, batch in enumerate(self.train_loader):
 
 				input_tensor = batch["input"].to(self.device)
-				# gt_illum = torch.cat((batch["illum1"],batch["illum2"]),1)
-				# gt_tensor = torch.cat((gt_illum[:,0:1],gt_illum[:,2:4],gt_illum[:,5:6]),1).to(self.device)   # delete G channel
-				gt_tensor = batch['illum_gt'].to(self.device)
+				gt_illum_tensor = batch['illum_gt'].to(self.device)
+				gt_image_tensor = batch['gt'].to(self.device)
+				abstract_gt_illum = utils.get_abstract_illum_map(gt_illum_tensor, self.abstract_pool)
 
-				output_tensor = self.net(input_tensor)
-				loss = self.criterion(output_tensor.float(), gt_tensor.float())
+				output_tensor, abstract_output_tensor = self.net(input_tensor)
+
+				loss_abstract_illum = self.criterion(abstract_output_tensor.float(), abstract_gt_illum.float())
+				loss_full_image = self.criterion(output_tensor.float(),gt_image_tensor.float())
+				loss = loss_abstract_illum + loss_full_image
+
 				self.net.zero_grad()
 				loss.backward()
 				self.optimizer.step()
-				mae_per_batch, _, _ = metrics.get_mae(output_tensor.float(), gt_tensor.float())
+				mae_per_batch, _, _ = metrics.get_mae(output_tensor.float(), gt_image_tensor.float())
 				mae_list = torch.cat([mae_list, mae_per_batch.detach().cpu()])
 
 				# print training log & tensorboard logging (every iteration)
 				if i % 10 == 0:
+					mae = torch.mean(mae_list)
 					print(f'[Train] Epoch [{epoch+1} / {self.num_epochs}] | ' \
 						  f'Batch [{i+1} / {len(self.train_loader)}] | ' \
 						  f'Loss: {loss.item():.6f} | ' \
-						  f'MAE: {torch.mean(mae_list):.4f}')
+						  f'MAE: {mae:.4f}')
 				self.writer.add_scalar('Loss/train', loss.item(), epoch*len(self.train_loader)+i)
+				self.writer.add_scalar('MAE/train', mae, epoch*len(self.train_loader)+i)
 				mae_list = torch.Tensor([])
 			# Validation
 			val_score = 0
 			n_val = 0
+			mae_list_val = torch.Tensor([])
 			self.net.eval()
 			for i, batch in enumerate(self.val_loader):
 				input_tensor = batch["input"].to(self.device)
-				# gt_illum = torch.cat((batch["illum1"],batch["illum2"]),1)
-				# gt_tensor = torch.cat((gt_illum[:,0:1],gt_illum[:,2:4],gt_illum[:,5:6]),1).to(self.device)   # delete G channel
-				gt_tensor = batch['illum_gt'].to(self.device)
+				gt_illum_tensor = batch['illum_gt'].to(self.device)
+				gt_image_tensor = batch['gt'].to(self.device)
+				abstract_gt_illum = utils.get_abstract_illum_map(gt_illum_tensor, self.abstract_pool)
 
 				minibatch_size = len(input_tensor)
 				n_val += minibatch_size
 
-				output_tensor = self.net(input_tensor)
-				loss = float(self.criterion(output_tensor.float(),gt_tensor.float()))
-				val_score += loss * minibatch_size
+				output_tensor, abstract_output_tensor = self.net(input_tensor)
 
+				loss_abstract_illum = self.criterion(abstract_output_tensor.float(), abstract_gt_illum.float())
+				loss_full_image = self.criterion(output_tensor.float(),gt_image_tensor.float())
+				loss = float(loss_abstract_illum + loss_full_image)
+
+				val_score += loss * minibatch_size
+				mae_per_batch, _, _ = metrics.get_mae(output_tensor.float(), gt_image_tensor.float())
+				mae_list = torch.cat([mae_list, mae_per_batch.detach().cpu()])
 			val_score /= n_val
 
+			mae = torch.mean(mae_list)
 			# print validation log & tensorboard logging (once per epoch)
 			print(f'[Valid] Epoch [{epoch+1} / {self.num_epochs}] | ' \
-				  f'Loss: {val_score:.6f}')
+				  f'Loss: {loss:.6f} | ' \
+				  f'MAE: {mae:.4f}')
 			self.writer.add_scalar('Loss/validation', val_score, epoch)
+			self.writer.add_scalar('MAE/train', mae, epoch*len(self.train_loader)+i)
 
 			# Save best model
 			if val_score < best_val_score:
@@ -155,18 +172,21 @@ class Solver():
 			place, illum_count, img_id = batch["place"][0], batch["illum_count"][0], batch["img_id"][0]
 
 			input_tensor = batch["input"].to(self.device)
-			gt_illum = torch.cat((batch["illum1"],batch["illum2"]),1)
-			gt_tensor = torch.cat((gt_illum[:,0:1],gt_illum[:,2:4],gt_illum[:,5:6]),1).to(self.device)   # delete G channel
+			gt_illum_tensor = batch['illum_gt'].to(self.device)
+			gt_image_tensor = batch['gt'].to(self.device)	
+			abstract_gt_illum = utils.get_abstract_illum_map(gt_illum_tensor, self.abstract_pool)
 
-			output_tensor = self.net(input_tensor)
-			loss = self.criterion(output_tensor,gt_tensor)
+			output_tensor, abstract_output_tensor = self.net(input_tensor)
+			loss_abstract_illum = self.criterion(abstract_output_tensor.float(), abstract_gt_illum.float())
+			loss_full_image = self.criterion(output_tensor.float(),gt_image_tensor.float())
+			loss = float(loss_abstract_illum + loss_full_image)
 			test_loss.append(loss.item())
 			
 			# print log
 			print(f'[Test] Batch [{i+1} / {len(self.test_loader)}] | ' \
 				  f'GT {gt_tensor[0].detach().cpu().numpy()} | ' \
 				  f'Pred {output_tensor[0].detach().cpu().numpy()} | ' \
-				  f'Loss {loss.item()}')
+				  f'Loss {loss}')
 
 			# save plot
 			output_illum1 = output_tensor[0][0:2].detach().cpu().numpy()
