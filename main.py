@@ -28,6 +28,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=72)
     parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--aux_coeff', type=float, default=0)
 
     # dataset & loader config
     parser.add_argument('--image_pool', type=str, nargs='+', default=['12'])

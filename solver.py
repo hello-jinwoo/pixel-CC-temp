@@ -21,6 +21,7 @@ class Solver():
 		self.batch_size = config.batch_size
 		self.lr = config.lr
 		self.criterion = nn.MSELoss(reduction='mean')
+		self.aux_coeff = config.aux_coeff
 
 		# Dataloader
 		self.train_loader = train_loader
@@ -96,7 +97,7 @@ class Solver():
 
 				loss_abstract_illum = self.criterion(abstract_output_tensor.float(), abstract_gt_illum.float())
 				loss_full_image = self.criterion(output_tensor.float(),gt_image_tensor.float())
-				loss = loss_abstract_illum + loss_full_image
+				loss = loss_abstract_illum * self.aux_coeff + loss_full_image * (1 - self.aux_coeff)
 
 				self.net.zero_grad()
 				loss.backward()
@@ -132,7 +133,7 @@ class Solver():
 
 				loss_abstract_illum = self.criterion(abstract_output_tensor.float(), abstract_gt_illum.float())
 				loss_full_image = self.criterion(output_tensor.float(),gt_image_tensor.float())
-				loss = float(loss_abstract_illum + loss_full_image)
+				loss = float(loss_abstract_illum * self.aux_coeff + loss_full_image * (1 - self.aux_coeff))
 
 				val_score += loss * minibatch_size
 				mae_per_batch, _, _ = metrics.get_mae(output_tensor.float(), gt_image_tensor.float())
@@ -179,7 +180,7 @@ class Solver():
 			output_tensor, abstract_output_tensor = self.net(input_tensor)
 			loss_abstract_illum = self.criterion(abstract_output_tensor.float(), abstract_gt_illum.float())
 			loss_full_image = self.criterion(output_tensor.float(),gt_image_tensor.float())
-			loss = float(loss_abstract_illum + loss_full_image)
+			loss = float(loss_abstract_illum * self.aux_coeff + loss_full_image * (1 - self.aux_coeff))
 			test_loss.append(loss.item())
 			
 			# print log
