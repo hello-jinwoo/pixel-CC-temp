@@ -83,9 +83,11 @@ class Solver():
 		best_val_score = 987654321.
 
 		for epoch in range(self.num_epochs):
+			mae_abstract_illum_list = torch.Tensor([])
+			mae_full_image_list = torch.Tensor([])
+
 			# Train
 			self.net.train()
-			mae_list = torch.Tensor([])
 			for i, batch in enumerate(self.train_loader):
 
 				input_tensor = batch["input"].to(self.device)
@@ -102,23 +104,35 @@ class Solver():
 				self.net.zero_grad()
 				loss.backward()
 				self.optimizer.step()
-				mae_per_batch, _, _ = metrics.get_mae(output_tensor.float(), gt_image_tensor.float())
-				mae_list = torch.cat([mae_list, mae_per_batch.detach().cpu()])
+
+				mae_full_image_per_batch, _, _ = metrics.get_mae(output_tensor.float(), gt_image_tensor.float())
+				mae_full_image_list = torch.cat([mae_full_image_list, mae_full_image_per_batch.detach().cpu()])
+				mae_abstract_illum_per_batch, _, _ = metrics.get_mae(abstract_output_tensor.float(), abstract_gt_illum.float())
+				mae_abstract_illum_list = torch.cat([mae_abstract_illum_list, mae_abstract_illum_per_batch.detach().cpu()])
 
 				# print training log & tensorboard logging (every iteration)
 				if i % 10 == 0:
-					mae = torch.mean(mae_list)
+					mae_abstract_illum = torch.mean(mae_abstract_illum_list)
+					mae_full_image = torch.mean(mae_full_image_list)
 					print(f'[Train] Epoch [{epoch+1} / {self.num_epochs}] | ' \
 						  f'Batch [{i+1} / {len(self.train_loader)}] | ' \
-						  f'Loss: {loss.item():.6f} | ' \
-						  f'MAE: {mae:.4f}')
+						  f'Loss: {loss.item():.5f} | ' \
+						  f'Loss_abstract: {loss_abstract_illum.item():.5f} | ' \
+						  f'Loss_full: {loss_full_image.item():.5f} | ' \
+						  f'MAE_abstract: {mae_abstract_illum:.3f} | ' \
+						  f'MAE_full: {mae_full_image:.3f}')
 				self.writer.add_scalar('Loss/train', loss.item(), epoch*len(self.train_loader)+i)
-				self.writer.add_scalar('MAE/train', mae, epoch*len(self.train_loader)+i)
-				mae_list = torch.Tensor([])
+				self.writer.add_scalar('Loss_full_image/train', loss_full_image.item(), epoch*len(self.train_loader)+i)
+				self.writer.add_scalar('loss_abstract_illum/train', loss_abstract_illum.item(), epoch*len(self.train_loader)+i)
+				self.writer.add_scalar('MAE_abstract_illum/train', mae_abstract_illum, epoch*len(self.train_loader)+i)
+				self.writer.add_scalar('MAE_full_image/train', mae_full_image, epoch*len(self.train_loader)+i)
+
+				mae_abstract_illum_list = torch.Tensor([])
+				mae_full_image_list = torch.Tensor([])
+
 			# Validation
 			val_score = 0
 			n_val = 0
-			mae_list_val = torch.Tensor([])
 			self.net.eval()
 			for i, batch in enumerate(self.val_loader):
 				input_tensor = batch["input"].to(self.device)
@@ -126,27 +140,41 @@ class Solver():
 				gt_image_tensor = batch['gt'].to(self.device)
 				abstract_gt_illum = utils.get_abstract_illum_map(gt_illum_tensor, self.abstract_pool)
 
-				minibatch_size = len(input_tensor)
-				n_val += minibatch_size
-
 				output_tensor, abstract_output_tensor = self.net(input_tensor)
 
 				loss_abstract_illum = self.criterion(abstract_output_tensor.float(), abstract_gt_illum.float())
 				loss_full_image = self.criterion(output_tensor.float(),gt_image_tensor.float())
 				loss = float(loss_abstract_illum * self.aux_coeff + loss_full_image * (1 - self.aux_coeff))
 
-				val_score += loss * minibatch_size
-				mae_per_batch, _, _ = metrics.get_mae(output_tensor.float(), gt_image_tensor.float())
-				mae_list = torch.cat([mae_list, mae_per_batch.detach().cpu()])
-			val_score /= n_val
+				minibatch_size = len(input_tensor)
+				n_val += minibatch_size
+				val_score_abstract_illum += loss_abstract_illum * minibatch_size
+				val_score_full_image += loss_full_image * minibatch_size
+				
+				mae_full_image_per_batch, _, _ = metrics.get_mae(output_tensor.float(), gt_image_tensor.float())
+				mae_full_image_list = torch.cat([mae_full_image_list, mae_full_image_per_batch.detach().cpu()])
+				mae_abstract_illum_per_batch, _, _ = metrics.get_mae(abstract_output_tensor.float(), abstract_gt_illum.float())
+				mae_abstract_illum_list = torch.cat([mae_abstract_illum_list, mae_abstract_illum_per_batch.detach().cpu()])
+			
+			val_score_abstract_illum /= n_val
+			val_score_full_image /= n_val
+			val_score = val_score_abstract_illum + val_score_full_image			
 
-			mae = torch.mean(mae_list)
+			mae_abstract_illum = torch.mean(mae_abstract_illum_list)
+			mae_full_image = torch.mean(mae_full_image_list)
+
 			# print validation log & tensorboard logging (once per epoch)
 			print(f'[Valid] Epoch [{epoch+1} / {self.num_epochs}] | ' \
-				  f'Loss: {loss:.6f} | ' \
-				  f'MAE: {mae:.4f}')
+				  f'Loss: {val_score:.5f} | ' \
+				  f'Loss_abstract: {val_score_abstract_illum:.5f} | ' \
+				  f'Loss_full: {val_score_full_image:.5f} | ' \
+				  f'MAE_abstract: {mae_abstract_illum:.3f} | ' \
+				  f'MAE_full: {mae_full_image:.3f}')
 			self.writer.add_scalar('Loss/validation', val_score, epoch)
-			self.writer.add_scalar('MAE/validation', mae, epoch*len(self.train_loader)+i)
+			self.writer.add_scalar('loss_abstract_illum/validation', val_score_abstract_illum, epoch)
+			self.writer.add_scalar('Loss_full_image/validation', val_score_full_image, epoch)
+			self.writer.add_scalar('MAE_abstract_illum/validation', mae_abstract_illum, epoch)
+			self.writer.add_scalar('MAE_full_image/validation', mae_full_image, epoch)
 
 			# Save best model
 			if val_score < best_val_score:
