@@ -121,16 +121,18 @@ class Solver():
 						  f'Loss_full: {loss_full_image.item():.5f} | ' \
 						  f'MAE_abstract: {mae_abstract_illum:.3f} | ' \
 						  f'MAE_full: {mae_full_image:.3f}')
-				self.writer.add_scalar('Loss/train', loss.item(), epoch*len(self.train_loader)+i)
-				self.writer.add_scalar('Loss_full_image/train', loss_full_image.item(), epoch*len(self.train_loader)+i)
-				self.writer.add_scalar('loss_abstract_illum/train', loss_abstract_illum.item(), epoch*len(self.train_loader)+i)
-				self.writer.add_scalar('MAE_abstract_illum/train', mae_abstract_illum, epoch*len(self.train_loader)+i)
-				self.writer.add_scalar('MAE_full_image/train', mae_full_image, epoch*len(self.train_loader)+i)
+					self.writer.add_scalar('Loss/train', loss.item(), epoch*len(self.train_loader)+i)
+					self.writer.add_scalar('Loss_full_image/train', loss_full_image.item(), epoch*len(self.train_loader)+i)
+					self.writer.add_scalar('loss_abstract_illum/train', loss_abstract_illum.item(), epoch*len(self.train_loader)+i)
+					self.writer.add_scalar('MAE_abstract_illum/train', mae_abstract_illum, epoch*len(self.train_loader)+i)
+					self.writer.add_scalar('MAE_full_image/train', mae_full_image, epoch*len(self.train_loader)+i)
 
 				mae_abstract_illum_list = torch.Tensor([])
 				mae_full_image_list = torch.Tensor([])
 
 			# Validation
+			val_score_abstract_illum = 0
+			val_score_full_image = 0
 			val_score = 0
 			n_val = 0
 			self.net.eval()
@@ -148,8 +150,8 @@ class Solver():
 
 				minibatch_size = len(input_tensor)
 				n_val += minibatch_size
-				val_score_abstract_illum += loss_abstract_illum * minibatch_size
-				val_score_full_image += loss_full_image * minibatch_size
+				val_score_abstract_illum += float(loss_abstract_illum * minibatch_size)
+				val_score_full_image += float(loss_full_image * minibatch_size)
 				
 				mae_full_image_per_batch, _, _ = metrics.get_mae(output_tensor.float(), gt_image_tensor.float())
 				mae_full_image_list = torch.cat([mae_full_image_list, mae_full_image_per_batch.detach().cpu()])

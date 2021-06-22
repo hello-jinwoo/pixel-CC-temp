@@ -28,8 +28,8 @@ def get_mae(img1, img2):
 	
 	mae = torch.acos(cos_similarity) * 180 / np.pi # [B, H*W]
 
-	mae_per_batch = torch.mean(mae).unsqueeze(dim=0)
-	mae_per_image = torch.mean(mae, dim=-1)
+	mae_per_batch = torch.mean(mae).unsqueeze(dim=0) # [1,]
+	mae_per_image = torch.mean(mae, dim=-1) # [B,]
 	mae_per_pixel = torch.reshape(mae, (img1.shape[0], img1.shape[2], img1.shape[3])) # [B, H, W]
 
 	return mae_per_batch, mae_per_image, mae_per_pixel

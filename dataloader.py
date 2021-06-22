@@ -76,17 +76,17 @@ class LSMI(data.Dataset):
 
         if self.output_type != None:
             # illum gt
-            illum_path = os.path.join(self.root,self.split,os.path.splitext(fname)[0]+'_illum.npy')
+            illum_path = os.path.join(self.root, self.split, os.path.splitext(fname)[0]+'_illum.npy')
             gt_illumination = np.load(illum_path)
             gt_tensor = np.delete(gt_illumination, 1, axis=2)   # delete green channel
             gt_tensor = torch.tensor(gt_tensor).permute(2,0,1)
             ret_dict["illum_gt"] = gt_tensor
             # image gt
-            output_path = os.path.join(self.root,self.split,os.path.splitext(fname)[0]+'_gt.tiff')
+            output_path = os.path.join(self.root, self.split, os.path.splitext(fname)[0]+'_gt.tiff')
             gt_bgr = cv2.imread(output_path, cv2.IMREAD_UNCHANGED).astype('float32')
             gt_rgb = cv2.cvtColor(gt_bgr, cv2.COLOR_BGR2RGB)
             gt_uvl = self.rgb2uvl(gt_rgb)
-            gt_uv = np.delete(gt_uvl, 2, axis=2)
+            gt_uv = np.delete(gt_uvl, 2, axis=2) # delete l channel
             gt_tensor = gt_uv
             gt_tensor = torch.tensor(gt_tensor).permute(2,0,1)
             ret_dict["gt"] = gt_tensor
