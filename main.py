@@ -13,7 +13,7 @@ def main(config):
     # Solver
     solver = Solver(config, train_loader, val_loader, test_loader)
 
-    solver.plot_labels(['train','val','test'])
+    # solver.plot_labels(['train','val','test'])
 
     if config.mode == 'train':
         solver.train()
@@ -34,7 +34,7 @@ if __name__ == '__main__':
     parser.add_argument('--image_pool', type=str, nargs='+', default=['12'])
     parser.add_argument('--image_size', type=int, default=256)
     parser.add_argument('--input_type', type=str, default='uvl', choices=['rgb','uvl'])
-    parser.add_argument('--output_type', type=str, default=None, choices=['illumination','uv','mixmap'])
+    parser.add_argument('--output_type', type=str, default='uv', choices=['illumination','uv','mixmap'])
     parser.add_argument('--mask_black', type=str, default=None)
     parser.add_argument('--mask_highlight', type=str, default=None)
     parser.add_argument('--num_workers', type=int, default=10)
@@ -53,6 +53,8 @@ if __name__ == '__main__':
                         help='0 for single-GPU, 1 for multi-GPU')
     parser.add_argument('--abstract_pool', type=int, default=8,
                         help='abstract pool size')
+    parser.add_argument('--white_level', type=float, default=1023.,
+                        help='white level for the camera - galaxy(1023) sony(4095) nikon(15520)')
 
     config = parser.parse_args()
     main(config)

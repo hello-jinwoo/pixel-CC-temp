@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+import math
+import cv2
 
 def get_mae(img1, img2):
 	'''
@@ -33,3 +35,15 @@ def get_mae(img1, img2):
 	mae_per_pixel = torch.reshape(mae, (img1.shape[0], img1.shape[2], img1.shape[3])) # [B, H, W]
 
 	return mae_per_batch, mae_per_image, mae_per_pixel
+
+def get_psnr(pred, GT, white_level):
+    """
+    pred & GT   : (b,h,w,c) numpy array 3 channel RGB
+
+    returns     : average PSNR of two images
+    """  
+    if white_level != None:
+        pred = np.clip(pred, 0, white_level)
+        GT = np.clip(GT, 0, white_level)
+
+    return cv2.PSNR(pred, GT, white_level)

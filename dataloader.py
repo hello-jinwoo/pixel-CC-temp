@@ -45,14 +45,14 @@ class LSMI(data.Dataset):
 
         # 1. prepare meta information
         ret_dict = {}
-        dummy = torch.tensor([-1,-1,-1])
-        ret_dict["illum1"] = torch.tensor(self.meta_data[self.split][place][illum_count+'_'+img_id][0])
+        dummy = torch.tensor([-1,-1,-1], dtype=torch.float32)
+        ret_dict["illum1"] = torch.tensor(self.meta_data[self.split][place][illum_count+'_'+img_id][0], dtype=torch.float32)
         ret_dict["illum2"], ret_dict["illum3"] = dummy, dummy
         if illum_count == "12":
-            ret_dict["illum2"] = torch.tensor(self.meta_data[self.split][place][illum_count+'_'+img_id][1])
+            ret_dict["illum2"] = torch.tensor(self.meta_data[self.split][place][illum_count+'_'+img_id][1], dtype=torch.float32)
         elif illum_count == "123":
-            ret_dict["illum2"] = torch.tensor(self.meta_data[self.split][place][illum_count+'_'+img_id][1])
-            ret_dict["illum3"] = torch.tensor(self.meta_data[self.split][place][illum_count+'_'+img_id][2])
+            ret_dict["illum2"] = torch.tensor(self.meta_data[self.split][place][illum_count+'_'+img_id][1], dtype=torch.float32)
+            ret_dict["illum3"] = torch.tensor(self.meta_data[self.split][place][illum_count+'_'+img_id][2], dtype=torch.float32)
         ret_dict["fname"] = fname
         ret_dict["place"] = place
         ret_dict["illum_count"] = illum_count
@@ -63,12 +63,13 @@ class LSMI(data.Dataset):
         input_path = os.path.join(self.root,self.split,fname)
         input_bgr = cv2.imread(input_path, cv2.IMREAD_UNCHANGED).astype('float32')
         input_rgb = cv2.cvtColor(input_bgr, cv2.COLOR_BGR2RGB)
+        ret_dict["input_rgb"] = torch.tensor(input_rgb, dtype=torch.float32).permute(2,0,1)
 
         if self.input_type == 'rgb':
             input_tensor = input_rgb
         elif self.input_type == 'uvl':
             input_tensor = self.rgb2uvl(input_rgb)
-        ret_dict["input"] = torch.tensor(input_tensor).permute(2,0,1)
+        ret_dict["input"] = torch.tensor(input_tensor, dtype=torch.float32).permute(2,0,1)
 
         # 3. prepare GT
         if self.output_type == 'mixmap':
@@ -78,8 +79,9 @@ class LSMI(data.Dataset):
             # illum gt
             illum_path = os.path.join(self.root, self.split, os.path.splitext(fname)[0]+'_illum.npy')
             gt_illumination = np.load(illum_path)
+            gt_illumination.astype('float32')
             gt_tensor = np.delete(gt_illumination, 1, axis=2)   # delete green channel
-            gt_tensor = torch.tensor(gt_tensor).permute(2,0,1)
+            gt_tensor = torch.tensor(gt_tensor, dtype=torch.float32).permute(2,0,1)
             ret_dict["illum_gt"] = gt_tensor
             # image gt
             output_path = os.path.join(self.root, self.split, os.path.splitext(fname)[0]+'_gt.tiff')
@@ -88,8 +90,9 @@ class LSMI(data.Dataset):
             gt_uvl = self.rgb2uvl(gt_rgb)
             gt_uv = np.delete(gt_uvl, 2, axis=2) # delete l channel
             gt_tensor = gt_uv
-            gt_tensor = torch.tensor(gt_tensor).permute(2,0,1)
+            gt_tensor = torch.tensor(gt_tensor, dtype=torch.float32).permute(2,0,1)
             ret_dict["gt"] = gt_tensor
+            ret_dict["gt_rgb"] = torch.tensor(gt_rgb).permute(2,0,1)
 
         # 4. prepare mask
         mask = np.ones_like(input_rgb[:,:,0], dtype='float32')[:,:,None]
@@ -97,7 +100,7 @@ class LSMI(data.Dataset):
             raise NotImplementedError("Implement black pixel masking!")
         if self.mask_highlight != None:
             raise NotImplementedError("Implement highlight masking!")
-        mask = torch.tensor(mask).permute(2,0,1)
+        mask = torch.tensor(mask, dtype=torch.float32).permute(2,0,1)
         ret_dict["mask"] = mask
 
         return ret_dict
