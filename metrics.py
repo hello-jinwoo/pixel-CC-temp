@@ -3,18 +3,18 @@ import torch
 import math
 import cv2
 
-def get_mae(img1, img2):
+def get_mae(img1, img2, include_g=True):
 	'''
-	IN: img1 & img2 ([B, 2, H, W])
+	IN: img1 & img2 ([B, 2, H, W] or [B, 3, H, W])
 	OUT: 
 		- mae_per_batch ([1,])
 		- mae_per_image ([B,])
 		- mae_per_pixel ([B, H, W])
 	'''
-	g_tensor = torch.ones_like(img1)[:, 0:1, :, :]
-
-	img1 = torch.cat([img1, g_tensor], dim=1) # [B, 3, H, W]
-	img2 = torch.cat([img2, g_tensor], dim=1) # [B, 3, H, W]
+	if not include_g:
+		g_tensor = torch.ones_like(img1)[:, 0:1, :, :]
+		img1 = torch.cat([img1, g_tensor], dim=1) # [B, 3, H, W]
+		img2 = torch.cat([img2, g_tensor], dim=1) # [B, 3, H, W]
 
 	img1_reshaped = torch.reshape(img1, (img1.shape[0], 3, -1)) # [B, 3, H*W]
 	img2_reshaped = torch.reshape(img2, (img2.shape[0], 3, -1)) # [B, 3, H*W]

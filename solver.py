@@ -85,23 +85,29 @@ class Solver():
 		best_val_score = 987654321.
 
 		for epoch in range(self.num_epochs):
-			mae_abstract_illum_list = torch.Tensor([])
-			mae_full_image_list = torch.Tensor([])
+			mae_abstract_list = torch.Tensor([])
+			mae_full_list = torch.Tensor([])
 			psnr_list = torch.Tensor([])
 
 			# Train
 			self.net.train()
 			for i, batch in enumerate(self.train_loader):
 
-				input_rgb = batch['input_rgb'].to(self.device)
-				input_tensor = batch["input"].to(self.device)
-				gt_illum_tensor = batch['illum_gt'].to(self.device)
-				gt_image_tensor = batch['gt'].to(self.device)
-				gt_image_rgb_tensor = batch['gt_rgb'].to(self.device)
-				abstract_gt_illum = utils.get_abstract_illum_map(gt_illum_tensor, self.abstract_pool)
+				input_rgb = batch['input_rgb'].to(self.device) # [B, 3, H, W]
+				input_tensor = batch["input"].to(self.device) # [B, 3, H, W]
+				gt_illum_tensor = batch['illum_gt'].to(self.device) # [B, 2, H, W]
+				gt_image_tensor = batch['gt'].to(self.device) # [B, 2, H, W] or # [B, 3, H, W]
+				gt_image_rgb_tensor = batch['gt_rgb'].to(self.device) # [B, 3, H, W]
+				abstract_gt_illum = utils.get_abstract_illum_map(gt_illum_tensor, self.abstract_pool) # [B, 2, H // P, W // P]
+				gt_illum_tensor_with_g = torch.ones_like(input_rgb) # [B, 3, H, W]
+				gt_illum_tensor_with_g[:, [0,2], ...] = gt_illum_tensor
 
 				output_tensor, abstract_output_tensor = self.net(input_tensor)
-				output_rgb = utils.apply_wb(input_rgb, output_tensor, self.output_type)
+				output_rgb = torch.clip(utils.apply_wb(input_rgb, output_tensor, self.output_type), 0, self.white_level)
+				if self.output_type == 'uv':
+					output_illum =  input_rgb / (output_rgb + 1e-8)
+				elif self.output_type == 'rgb':
+					output_illum = output_tensor
 
 				loss_abstract_illum = self.criterion(abstract_output_tensor.float(), abstract_gt_illum.float())
 				loss_full_image = self.criterion(output_tensor.float(),gt_image_tensor.float())
@@ -111,10 +117,10 @@ class Solver():
 				loss.backward()
 				self.optimizer.step()
 
-				mae_full_image_per_batch, _, _ = metrics.get_mae(output_tensor.float(), gt_image_tensor.float())
-				mae_full_image_list = torch.cat([mae_full_image_list, mae_full_image_per_batch.detach().cpu()])
-				mae_abstract_illum_per_batch, _, _ = metrics.get_mae(abstract_output_tensor.float(), abstract_gt_illum.float())
-				mae_abstract_illum_list = torch.cat([mae_abstract_illum_list, mae_abstract_illum_per_batch.detach().cpu()])
+				mae_full_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum_tensor_with_g)
+				mae_full_list = torch.cat([mae_full_list, mae_full_per_batch.detach().cpu()])
+				mae_abstract_per_batch, _, _ = metrics.get_mae(abstract_output_tensor, abstract_gt_illum, include_g=False)
+				mae_abstract_list = torch.cat([mae_abstract_list, mae_abstract_per_batch.detach().cpu()])
 				psnr_per_batch = metrics.get_psnr(output_rgb.permute(0,2,3,1).detach().cpu().numpy(),
 												  gt_image_rgb_tensor.permute(0,2,3,1).detach().cpu().numpy(),
 												  self.white_level)
@@ -122,26 +128,26 @@ class Solver():
 
 				# print training log & tensorboard logging (every iteration)
 				if i % 10 == 0:
-					mae_abstract_illum = torch.mean(mae_abstract_illum_list)
-					mae_full_image = torch.mean(mae_full_image_list)
+					mae_abstract = torch.mean(mae_abstract_list)
+					mae_full = torch.mean(mae_full_list)
 					psnr = torch.mean(psnr_list)
 					print(f'[Train] Epoch [{epoch+1} / {self.num_epochs}] | ' \
 						  f'Batch [{i+1} / {len(self.train_loader)}] | ' \
 						  f'Loss: {loss.item():.5f} | ' \
 						  f'Loss_abstract: {loss_abstract_illum.item():.5f} | ' \
 						  f'Loss_full: {loss_full_image.item():.5f} | ' \
-						  f'MAE_abstract: {mae_abstract_illum:.3f} | ' \
-						  f'MAE_full: {mae_full_image:.3f} | ' \
+						  f'MAE_abstract: {mae_abstract:.3f} | ' \
+						  f'MAE_full: {mae_full:.3f} | ' \
 						  f'PSNR: {psnr:.2f}')
 					self.writer.add_scalar('Loss/train', loss.item(), epoch*len(self.train_loader)+i)
 					self.writer.add_scalar('Loss_full_image/train', loss_full_image.item(), epoch*len(self.train_loader)+i)
 					self.writer.add_scalar('loss_abstract_illum/train', loss_abstract_illum.item(), epoch*len(self.train_loader)+i)
-					self.writer.add_scalar('MAE_abstract_illum/train', mae_abstract_illum, epoch*len(self.train_loader)+i)
-					self.writer.add_scalar('MAE_full_image/train', mae_full_image, epoch*len(self.train_loader)+i)
+					self.writer.add_scalar('MAE_abstract/train', mae_abstract, epoch*len(self.train_loader)+i)
+					self.writer.add_scalar('MAE_full/train', mae_full, epoch*len(self.train_loader)+i)
 					self.writer.add_scalar('PSNR/train', psnr, epoch)
 
-				mae_abstract_illum_list = torch.Tensor([])
-				mae_full_image_list = torch.Tensor([])
+				mae_abstract_list = torch.Tensor([])
+				mae_full_list = torch.Tensor([])
 				psnr_list = torch.Tensor([])
 
 			# Validation
@@ -151,12 +157,21 @@ class Solver():
 			n_val = 0
 			self.net.eval()
 			for i, batch in enumerate(self.val_loader):
-				input_tensor = batch["input"].to(self.device)
-				gt_illum_tensor = batch['illum_gt'].to(self.device)
-				gt_image_tensor = batch['gt'].to(self.device)
+				input_rgb = batch['input_rgb'].to(self.device) # [B, 3, H, W]
+				input_tensor = batch["input"].to(self.device) # [B, 3, H, W]
+				gt_illum_tensor = batch['illum_gt'].to(self.device) # [B, 2, H, W]
+				gt_image_tensor = batch['gt'].to(self.device) # # [B, 2, H, W] or [B, 3, H, W]
+				gt_image_rgb_tensor = batch['gt_rgb'].to(self.device) # [B, 3, H, W]
 				abstract_gt_illum = utils.get_abstract_illum_map(gt_illum_tensor, self.abstract_pool)
+				gt_illum_tensor_with_g = torch.ones_like(input_rgb) # [B, 3, H, W]
+				gt_illum_tensor_with_g[:, [0,2], ...] = gt_illum_tensor
 
 				output_tensor, abstract_output_tensor = self.net(input_tensor)
+				output_rgb = torch.clip(utils.apply_wb(input_rgb, output_tensor, self.output_type), 0, self.white_level)
+				if self.output_type == 'uv':
+					output_illum =  input_rgb / (output_rgb + 1e-8)
+				elif self.output_type == 'rgb':
+					output_illum = output_tensor
 
 				loss_abstract_illum = self.criterion(abstract_output_tensor.float(), abstract_gt_illum.float())
 				loss_full_image = self.criterion(output_tensor.float(),gt_image_tensor.float())
@@ -167,10 +182,10 @@ class Solver():
 				val_score_abstract_illum += float(loss_abstract_illum * minibatch_size)
 				val_score_full_image += float(loss_full_image * minibatch_size)
 				
-				mae_full_image_per_batch, _, _ = metrics.get_mae(output_tensor.float(), gt_image_tensor.float())
-				mae_full_image_list = torch.cat([mae_full_image_list, mae_full_image_per_batch.detach().cpu()])
-				mae_abstract_illum_per_batch, _, _ = metrics.get_mae(abstract_output_tensor.float(), abstract_gt_illum.float())
-				mae_abstract_illum_list = torch.cat([mae_abstract_illum_list, mae_abstract_illum_per_batch.detach().cpu()])
+				mae_full_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum_tensor_with_g)
+				mae_full_list = torch.cat([mae_full_list, mae_full_per_batch.detach().cpu()])
+				mae_abstract_per_batch, _, _ = metrics.get_mae(abstract_output_tensor, abstract_gt_illum, include_g=False)
+				mae_abstract_list = torch.cat([mae_abstract_list, mae_abstract_per_batch.detach().cpu()])
 				psnr_per_batch = metrics.get_psnr(output_rgb.permute(0,2,3,1).detach().cpu().numpy(),
 												  gt_image_rgb_tensor.permute(0,2,3,1).detach().cpu().numpy(),
 												  self.white_level)
@@ -180,22 +195,22 @@ class Solver():
 			val_score_full_image /= n_val
 			val_score = val_score_abstract_illum + val_score_full_image			
 
-			mae_abstract_illum = torch.mean(mae_abstract_illum_list)
-			mae_full_image = torch.mean(mae_full_image_list)
+			mae_abstract = torch.mean(mae_abstract_list)
+			mae_full = torch.mean(mae_full_list)
 
 			# print validation log & tensorboard logging (once per epoch)
 			print(f'[Valid] Epoch [{epoch+1} / {self.num_epochs}] | ' \
 				  f'Loss: {val_score:.5f} | ' \
 				  f'Loss_abstract: {val_score_abstract_illum:.5f} | ' \
 				  f'Loss_full: {val_score_full_image:.5f} | ' \
-				  f'MAE_abstract: {mae_abstract_illum:.3f} | ' \
-				  f'MAE_full: {mae_full_image:.3f} | ' \
+				  f'MAE_abstract: {mae_abstract:.3f} | ' \
+				  f'MAE_full: {mae_full:.3f} | ' \
 				  f'PSNR: {psnr:.2f}')
 			self.writer.add_scalar('Loss/validation', val_score, epoch)
 			self.writer.add_scalar('loss_abstract_illum/validation', val_score_abstract_illum, epoch)
 			self.writer.add_scalar('Loss_full_image/validation', val_score_full_image, epoch)
-			self.writer.add_scalar('MAE_abstract_illum/validation', mae_abstract_illum, epoch)
-			self.writer.add_scalar('MAE_full_image/validation', mae_full_image, epoch)
+			self.writer.add_scalar('MAE_abstract/validation', mae_abstract, epoch)
+			self.writer.add_scalar('MAE_full/validation', mae_full, epoch)
 			self.writer.add_scalar('PSNR/validation', psnr, epoch)
 
 			# Save best model
