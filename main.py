@@ -31,13 +31,14 @@ if __name__ == '__main__':
     parser.add_argument('--aux_coeff', type=float, default=0)
 
     # dataset & loader config
-    parser.add_argument('--image_pool', type=str, nargs='+', default=['12'])
+    parser.add_argument('--image_pool', type=int, nargs='+', default=[2])
     parser.add_argument('--image_size', type=int, default=256)
     parser.add_argument('--input_type', type=str, default='uvl', choices=['rgb','uvl'])
     parser.add_argument('--output_type', type=str, default='uv', choices=['illumination','uv','mixmap'])
     parser.add_argument('--mask_black', type=str, default=None)
     parser.add_argument('--mask_highlight', type=str, default=None)
     parser.add_argument('--num_workers', type=int, default=10)
+    parser.add_argument('--data_augmentation', type=bool, default=True)
 
     # path config
     parser.add_argument('--data_root', type=str, default='GALAXY_synthetic')
@@ -55,6 +56,7 @@ if __name__ == '__main__':
                         help='abstract pool size')
     parser.add_argument('--white_level', type=float, default=1023.,
                         help='white level for the camera - galaxy(1023) sony(4095) nikon(15520)')
+    parser.add_argument('--log_interval', type=int, default=10)
 
     config = parser.parse_args()
     main(config)

@@ -51,6 +51,7 @@ class Solver():
 		self.multi_gpu = config.multi_gpu
 		self.abstract_pool = config.abstract_pool
 		self.white_level = config.white_level
+		self.log_interval = config.log_interval
 
 		self.build_model()
 
@@ -106,6 +107,7 @@ class Solver():
 				output_rgb = torch.clip(utils.apply_wb(input_rgb, output_tensor, self.output_type), 0, self.white_level)
 				if self.output_type == 'uv':
 					output_illum =  input_rgb / (output_rgb + 1e-8)
+					gt_illum = input_rgb / (gt_image_rgb_tensor + 1e-8)
 				elif self.output_type == 'rgb':
 					output_illum = output_tensor
 
@@ -117,7 +119,8 @@ class Solver():
 				loss.backward()
 				self.optimizer.step()
 
-				mae_full_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum_tensor_with_g)
+				# mae_full_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum_tensor_with_g)
+				mae_full_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum)
 				mae_full_list = torch.cat([mae_full_list, mae_full_per_batch.detach().cpu()])
 				mae_abstract_per_batch, _, _ = metrics.get_mae(abstract_output_tensor, abstract_gt_illum, include_g=False)
 				mae_abstract_list = torch.cat([mae_abstract_list, mae_abstract_per_batch.detach().cpu()])
@@ -127,7 +130,7 @@ class Solver():
 				psnr_list = torch.cat([psnr_list, torch.Tensor([psnr_per_batch])])
 
 				# print training log & tensorboard logging (every iteration)
-				if i % 10 == 0:
+				if i % self.log_interval == 0:
 					mae_abstract = torch.mean(mae_abstract_list)
 					mae_full = torch.mean(mae_full_list)
 					psnr = torch.mean(psnr_list)
@@ -139,12 +142,12 @@ class Solver():
 						  f'MAE_abstract: {mae_abstract:.3f} | ' \
 						  f'MAE_full: {mae_full:.3f} | ' \
 						  f'PSNR: {psnr:.2f}')
-					self.writer.add_scalar('Loss/train', loss.item(), epoch*len(self.train_loader)+i)
-					self.writer.add_scalar('Loss_full_image/train', loss_full_image.item(), epoch*len(self.train_loader)+i)
-					self.writer.add_scalar('loss_abstract_illum/train', loss_abstract_illum.item(), epoch*len(self.train_loader)+i)
-					self.writer.add_scalar('MAE_abstract/train', mae_abstract, epoch*len(self.train_loader)+i)
-					self.writer.add_scalar('MAE_full/train', mae_full, epoch*len(self.train_loader)+i)
-					self.writer.add_scalar('PSNR/train', psnr, epoch)
+					self.writer.add_scalar('train/Loss', loss.item(), epoch*len(self.train_loader)+i)
+					self.writer.add_scalar('train/Loss_full_image', loss_full_image.item(), epoch*len(self.train_loader)+i)
+					self.writer.add_scalar('train/loss_abstract_illum', loss_abstract_illum.item(), epoch*len(self.train_loader)+i)
+					self.writer.add_scalar('train/MAE_abstract', mae_abstract, epoch*len(self.train_loader)+i)
+					self.writer.add_scalar('train/MAE_full', mae_full, epoch*len(self.train_loader)+i)
+					self.writer.add_scalar('train/PSNR', psnr, epoch*len(self.train_loader)+i)
 
 				mae_abstract_list = torch.Tensor([])
 				mae_full_list = torch.Tensor([])
@@ -170,6 +173,7 @@ class Solver():
 				output_rgb = torch.clip(utils.apply_wb(input_rgb, output_tensor, self.output_type), 0, self.white_level)
 				if self.output_type == 'uv':
 					output_illum =  input_rgb / (output_rgb + 1e-8)
+					gt_illum = input_rgb / (gt_image_rgb_tensor + 1e-8)
 				elif self.output_type == 'rgb':
 					output_illum = output_tensor
 
@@ -182,7 +186,8 @@ class Solver():
 				val_score_abstract_illum += float(loss_abstract_illum * minibatch_size)
 				val_score_full_image += float(loss_full_image * minibatch_size)
 				
-				mae_full_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum_tensor_with_g)
+				# mae_full_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum_tensor_with_g)
+				mae_full_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum)
 				mae_full_list = torch.cat([mae_full_list, mae_full_per_batch.detach().cpu()])
 				mae_abstract_per_batch, _, _ = metrics.get_mae(abstract_output_tensor, abstract_gt_illum, include_g=False)
 				mae_abstract_list = torch.cat([mae_abstract_list, mae_abstract_per_batch.detach().cpu()])
@@ -206,12 +211,12 @@ class Solver():
 				  f'MAE_abstract: {mae_abstract:.3f} | ' \
 				  f'MAE_full: {mae_full:.3f} | ' \
 				  f'PSNR: {psnr:.2f}')
-			self.writer.add_scalar('Loss/validation', val_score, epoch)
-			self.writer.add_scalar('loss_abstract_illum/validation', val_score_abstract_illum, epoch)
-			self.writer.add_scalar('Loss_full_image/validation', val_score_full_image, epoch)
-			self.writer.add_scalar('MAE_abstract/validation', mae_abstract, epoch)
-			self.writer.add_scalar('MAE_full/validation', mae_full, epoch)
-			self.writer.add_scalar('PSNR/validation', psnr, epoch)
+			self.writer.add_scalar('validation/Loss', val_score, epoch)
+			self.writer.add_scalar('validation/loss_abstract_illum', val_score_abstract_illum, epoch)
+			self.writer.add_scalar('validation/Loss_full_image', val_score_full_image, epoch)
+			self.writer.add_scalar('validation/MAE_abstract', mae_abstract, epoch)
+			self.writer.add_scalar('validation/MAE_full', mae_full, epoch)
+			self.writer.add_scalar('validation/PSNR', psnr, epoch)
 
 			# Save best model
 			if val_score < best_val_score:
