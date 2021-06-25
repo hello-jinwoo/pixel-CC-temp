@@ -198,7 +198,7 @@ class Solver():
 
 			val_score_abstract_illum /= n_val
 			val_score_full_image /= n_val
-			val_score = val_score_abstract_illum + val_score_full_image			
+			val_score = val_score_abstract_illum * self.aux_coeff + val_score_full_image * (1 - self.aux_coeff)
 
 			mae_abstract = torch.mean(mae_abstract_list)
 			mae_full = torch.mean(mae_full_list)
