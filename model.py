@@ -96,7 +96,10 @@ class U_Net(nn.Module):
         self.Conv_1x1 = nn.Conv2d(64,output_ch,kernel_size=1,stride=1,padding=0)
 
         self.Conv_abstract_estimation = nn.Sequential(
-            nn.Conv2d(256, 64, kernel_size=1),
+            nn.Conv2d(256, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 64, kernel_size=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
             nn.Conv2d(64, 2, kernel_size=1),

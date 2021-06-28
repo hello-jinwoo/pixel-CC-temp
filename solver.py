@@ -9,6 +9,7 @@ import metrics
 import utils
 import sys
 import cv2
+from tqdm import tqdm
 
 class Solver():
 	def __init__(self, config, train_loader, val_loader, test_loader):
@@ -119,8 +120,8 @@ class Solver():
 				loss.backward()
 				self.optimizer.step()
 
-				# mae_full_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum_tensor_with_g)
-				mae_full_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum)
+				mae_full_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum_tensor_with_g)
+				# mae_full_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum)
 				mae_full_list = torch.cat([mae_full_list, mae_full_per_batch.detach().cpu()])
 				mae_abstract_per_batch, _, _ = metrics.get_mae(abstract_output_tensor, abstract_gt_illum, include_g=False)
 				mae_abstract_list = torch.cat([mae_abstract_list, mae_abstract_per_batch.detach().cpu()])
@@ -186,8 +187,8 @@ class Solver():
 				val_score_abstract_illum += float(loss_abstract_illum * minibatch_size)
 				val_score_full_image += float(loss_full_image * minibatch_size)
 				
-				# mae_full_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum_tensor_with_g)
-				mae_full_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum)
+				mae_full_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum_tensor_with_g)
+				# mae_full_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum)
 				mae_full_list = torch.cat([mae_full_list, mae_full_per_batch.detach().cpu()])
 				mae_abstract_per_batch, _, _ = metrics.get_mae(abstract_output_tensor, abstract_gt_illum, include_g=False)
 				mae_abstract_list = torch.cat([mae_abstract_list, mae_abstract_per_batch.detach().cpu()])
@@ -202,6 +203,7 @@ class Solver():
 
 			mae_abstract = torch.mean(mae_abstract_list)
 			mae_full = torch.mean(mae_full_list)
+			psnr = torch.mean(psnr_list)
 
 			# print validation log & tensorboard logging (once per epoch)
 			print(f'[Valid] Epoch [{epoch+1} / {self.num_epochs}] | ' \
@@ -237,48 +239,77 @@ class Solver():
 
 	def test(self):
 		self.net.eval()
-
+		psnr_list = torch.Tensor([])
+		mae_list = torch.Tensor([])
 		test_loss = []
-		for i, batch in enumerate(self.test_loader):
-			place, illum_count, img_id = batch["place"][0], batch["illum_count"][0], batch["img_id"][0]
-
+		for i, batch in tqdm(enumerate(self.test_loader)):
+			# place, illum_count, img_id = batch["place"][0], batch["illum_count"][0], batch["img_id"][0]
+			place, illum_count = batch["place"][0], batch["illum_count"][0]
+			input_rgb = batch['input_rgb'].to(self.device) # [B, 3, H, W]
 			input_tensor = batch["input"].to(self.device)
 			gt_illum_tensor = batch['illum_gt'].to(self.device)
 			gt_image_tensor = batch['gt'].to(self.device)	
-			abstract_gt_illum = utils.get_abstract_illum_map(gt_illum_tensor, self.abstract_pool)
+			gt_image_rgb_tensor = batch['gt_rgb'].to(self.device) # [B, 3, H, W]
+			# abstract_gt_illum = utils.get_abstract_illum_map(gt_illum_tensor, self.abstract_pool)
+			gt_illum_tensor_with_g = torch.ones_like(input_rgb) # [B, 3, H, W]
+			gt_illum_tensor_with_g[:, [0,2], ...] = gt_illum_tensor
 
 			output_tensor, abstract_output_tensor = self.net(input_tensor)
-			loss_abstract_illum = self.criterion(abstract_output_tensor.float(), abstract_gt_illum.float())
-			loss_full_image = self.criterion(output_tensor.float(),gt_image_tensor.float())
-			loss = float(loss_abstract_illum * self.aux_coeff + loss_full_image * (1 - self.aux_coeff))
-			test_loss.append(loss.item())
+			# loss_abstract_illum = self.criterion(abstract_output_tensor.float(), abstract_gt_illum.float())
+			loss = float( self.criterion(output_tensor.float(),gt_image_tensor.float()) )
+			# loss = float(loss_abstract_illum * self.aux_coeff + loss_full_image * (1 - self.aux_coeff))
+			test_loss.append(loss)
 			
-			# print log
-			print(f'[Test] Batch [{i+1} / {len(self.test_loader)}] | ' \
-				  f'GT {gt_tensor[0].detach().cpu().numpy()} | ' \
-				  f'Pred {output_tensor[0].detach().cpu().numpy()} | ' \
-				  f'Loss {loss}')
+			output_rgb = torch.clip(utils.apply_wb(input_rgb, output_tensor, self.output_type), 0, self.white_level)
+			if self.output_type == 'uv':
+				output_illum =  input_rgb / (output_rgb + 1e-8)
+				gt_illum = input_rgb / (gt_image_rgb_tensor + 1e-8)
+			elif self.output_type == 'rgb':
+				output_illum = output_tensor
 
-			# save plot
-			output_illum1 = output_tensor[0][0:2].detach().cpu().numpy()
-			output_illum2 = output_tensor[0][2:4].detach().cpu().numpy()
-			gt_illum1 = gt_tensor[0][0:2].detach().cpu().numpy()
-			gt_illum2 = gt_tensor[0][2:4].detach().cpu().numpy()
-			plt.plot(output_illum1[0], output_illum1[1], 'ro', label='pred_1')
-			plt.plot(output_illum2[0], output_illum2[1], 'r^', label='pred_2')
-			plt.plot(gt_illum1[0], gt_illum1[1], 'go', label='gt_1')
-			plt.plot(gt_illum2[0], gt_illum2[1], 'g^', label='gt_2')
-			plt.axis([0,1,0,1])
-			plt.xlabel('R/G')
-			plt.ylabel('B/G')
-			plt.legend()
-			plt.savefig(os.path.join(self.result_path,'_'.join([str(i),place,illum_count,img_id])+'.png'))
-			plt.clf()
+			mae_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum_tensor_with_g)
+			# mae_per_batch, _, _ = metrics.get_mae(output_illum, gt_illum)
+			mae_list = torch.cat([mae_list, mae_per_batch.detach().cpu()])
+			psnr_per_batch = metrics.get_psnr(output_rgb.permute(0,2,3,1).detach().cpu().numpy(),
+											  gt_image_rgb_tensor.permute(0,2,3,1).detach().cpu().numpy(),
+											  self.white_level)
+			psnr_list = torch.cat([psnr_list, torch.Tensor([psnr_per_batch])])
+
+			# # print log
+			# print(f'[Test] Batch [{i+1} / {len(self.test_loader)}] | ' \
+			# 	  f'GT {gt_tensor[0].detach().cpu().numpy()} | ' \
+			# 	  f'Pred {output_tensor[0].detach().cpu().numpy()} | ' \
+			# 	  f'Loss {loss}')
+
+			# # save plot
+			# output_illum1 = output_tensor[0][0:2].detach().cpu().numpy()
+			# output_illum2 = output_tensor[0][2:4].detach().cpu().numpy()
+			# gt_illum1 = gt_tensor[0][0:2].detach().cpu().numpy()
+			# gt_illum2 = gt_tensor[0][2:4].detach().cpu().numpy()
+			# plt.plot(output_illum1[0], output_illum1[1], 'ro', label='pred_1')
+			# plt.plot(output_illum2[0], output_illum2[1], 'r^', label='pred_2')
+			# plt.plot(gt_illum1[0], gt_illum1[1], 'go', label='gt_1')
+			# plt.plot(gt_illum2[0], gt_illum2[1], 'g^', label='gt_2')
+			# plt.axis([0,1,0,1])
+			# plt.xlabel('R/G')
+			# plt.ylabel('B/G')
+			# plt.legend()
+			# plt.savefig(os.path.join(self.result_path,'_'.join([str(i),place,illum_count,img_id])+'.png'))
+			# plt.clf()
 		
+
 		print(f'Test Loss [Avg] : {np.mean(test_loss):.6f} ' \
 			  f'[Min] : {np.min(test_loss):.6f} ' \
 			  f'[Med] : {np.median(test_loss):.6f} ' \
 			  f'[Max] : {np.max(test_loss):.6f} ')
+		print(f'Test MAE [Avg] : {np.mean(mae_list):.6f} ' \
+			  f'[Min] : {np.min(mae_list):.6f} ' \
+			  f'[Med] : {np.median(mae_list):.6f} ' \
+			  f'[Max] : {np.max(mae_list):.6f} ')
+		print(f'Test PSNR [Avg] : {np.mean(psnr_list):.6f} ' \
+			  f'[Min] : {np.min(psnr_list):.6f} ' \
+			  f'[Med] : {np.median(psnr_list):.6f} ' \
+			  f'[Max] : {np.max(psnr_list):.6f} ')
 
 
 	def process_illum(self):
